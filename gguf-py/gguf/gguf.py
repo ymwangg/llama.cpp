@@ -608,8 +608,11 @@ class GGUFWriter:
             fp.write(bytes([0] * pad))
 
     def write_tensor_data(self, tensor: np.ndarray[Any, Any]):
+        print(f"Write padding {self.fout.tell()}")
         self.write_padding(self.fout, self.fout.tell())
+        print("tensor.tofile")
         tensor.tofile(self.fout)
+        print(f"Write padding {tensor.nbytes}")
         self.write_padding(self.fout, tensor.nbytes)
 
     def write_tensors_to_file(self):

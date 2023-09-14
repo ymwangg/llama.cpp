@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <atomic>
 #include <assert.h>
+#include <chrono>
 
 #if defined(GGML_USE_HIPBLAS)
 #include <hip/hip_runtime.h>
@@ -6299,13 +6300,21 @@ void ggml_cuda_mul_mat(const ggml_tensor * src0, const ggml_tensor * src1, ggml_
         src1->backend == GGML_BACKEND_GPU && dst->backend == GGML_BACKEND_GPU;
 
     if (all_on_device && ggml_is_permuted(src0) && ggml_is_permuted(src1) && src1->ne[1] == 1) {
+        printf("ggml_cuda_mul_mat_vec_p021\n");
         ggml_cuda_mul_mat_vec_p021(src0, src1, dst);
     } else if (all_on_device && !ggml_is_contiguous(src0) && ggml_is_contiguous(src1) && src1->ne[1] == 1) {
+        printf("ggml_cuda_mul_mat_vec_nc\n");
         ggml_cuda_mul_mat_vec_nc(src0, src1, dst);
     }else if (src0->type == GGML_TYPE_F32) {
+        printf("ggml_cuda_op\n");
         ggml_cuda_op(src0, src1, dst, ggml_cuda_op_mul_mat_cublas, true, false);
     } else if (ggml_is_quantized(src0->type) || src0->type == GGML_TYPE_F16) {
+        printf("ggml_is_quantized src0[%d](%s)=[%d,%d,%d,%d] src1[%d](%s)=[%d,%d,%d,%d] dst[%d](%s)=[%d,%d,%d,%d]\n",
+        src0->n_dims, ggml_type_name(src0->type), src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
+        src1->n_dims, ggml_type_name(src1->type), src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3],
+        dst->n_dims, ggml_type_name(dst->type), dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3]);
         if (src1->ne[1] == 1 && src0->ne[0] % GGML_CUDA_DMMV_X == 0) {
+            printf("ggml_is_quantized 0\n");
             ggml_cuda_op(src0, src1, dst, ggml_cuda_op_mul_mat_vec, false, false);
         } else {
             int min_compute_capability = INT_MAX;
@@ -6317,8 +6326,10 @@ void ggml_cuda_mul_mat(const ggml_tensor * src0, const ggml_tensor * src1, ggml_
             }
 
             if (g_mul_mat_q && ggml_is_quantized(src0->type) && min_compute_capability >= MIN_CC_DP4A) {
+                printf("ggml_is_quantized 1\n");
                 ggml_cuda_op(src0, src1, dst, ggml_cuda_op_mul_mat_q, false, false);
             } else {
+                printf("ggml_is_quantized 2\n");
                 ggml_cuda_op(src0, src1, dst, ggml_cuda_op_mul_mat_cublas, true, false);
             }
         }
@@ -6795,7 +6806,14 @@ bool ggml_cuda_compute_forward(struct ggml_compute_params * params, struct ggml_
     if (params->type == GGML_TASK_INIT || params->type == GGML_TASK_FINALIZE) {
         return true;
     }
+    // auto x = std::chrono::high_resolution_clock::now();
+    // CUDA_CHECK(cudaDeviceSynchronize());
     func(tensor->src[0], tensor->src[1], tensor);
+    // CUDA_CHECK(cudaDeviceSynchronize());
+    // auto y = std::chrono::high_resolution_clock::now();
+    // auto duration = std::chrono::duration_cast<std::chrono::microseconds>(y-x);
+    // if (duration.count() > 1000)
+    // printf("OP:%s duration elapsed = %ld us dst = %d\n",ggml_op_name(tensor->op), duration.count(), tensor->backend);
     return true;
 }
 

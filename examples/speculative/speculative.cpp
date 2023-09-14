@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <chrono>
 
 int main(int argc, char ** argv) {
     gpt_params params;
@@ -125,10 +126,11 @@ int main(int argc, char ** argv) {
     }
 
     const auto t_dec_start = ggml_time_us();
-
+    std::vector<int> mid_stat;
+    std::vector<int> end_stat;
     while (true) {
         LOG("drafted: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx_dft, drafted));
-
+        auto start = std::chrono::high_resolution_clock::now();
         int i_dft = 0;
         while (true) {
             // sample from the target model
@@ -141,8 +143,8 @@ int main(int argc, char ** argv) {
             //LOG("last: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx_tgt, last_tokens));
 
             const std::string token_str = llama_token_to_piece(ctx_tgt, id);
-            printf("%s", token_str.c_str());
-            fflush(stdout);
+            // printf("%s", token_str.c_str());
+            // fflush(stdout);
 
             if (id == llama_token_eos(ctx_tgt)) {
                 has_eos = true;
@@ -178,7 +180,10 @@ int main(int argc, char ** argv) {
 
             break;
         }
-
+        auto mid = std::chrono::high_resolution_clock::now();
+        std::chrono::microseconds duration = std::chrono::duration_cast<std::chrono::microseconds>(mid - start);
+        printf("\n#1 mid elapsed = %ld us, passed = %d\n", duration.count(), n_past_tgt);
+        mid_stat.push_back(duration.count());
         if (n_predict > params.n_predict || has_eos) {
             break;
         }
@@ -241,13 +246,23 @@ int main(int argc, char ** argv) {
             }
         }
 
+        auto x = std::chrono::high_resolution_clock::now();
         // evaluate the target model on the drafted tokens
         llama_eval(ctx_tgt, drafted.data(), drafted.size(), n_past_tgt, params.n_threads);
         ++n_past_tgt;
-
+        auto y = std::chrono::high_resolution_clock::now();
+        duration = std::chrono::duration_cast<std::chrono::microseconds>(y-x);
+        printf("\n#1 target model elapsed = %ld us, drafted_size = %d, n_past_tgt = %d\n", duration.count(), drafted.size(), n_past_tgt);
+        auto end = std::chrono::high_resolution_clock::now();
+        duration = std::chrono::duration_cast<std::chrono::microseconds>(end - mid);
+        printf("\n#1 end elapsed = %ld us, passed = %d\n", duration.count(), n_past_tgt);
+        end_stat.push_back(duration.count());
         // the first token is always proposed by the traget model before the speculation loop
         drafted.erase(drafted.begin());
     }
+
+    printf("mid min = %ld max = %ld\n", *std::min_element(mid_stat.begin(), mid_stat.end()), *std::max_element(mid_stat.begin(), mid_stat.end()));
+    printf("end min = %ld max = %ld\n", *std::min_element(end_stat.begin(), end_stat.end()), *std::max_element(end_stat.begin(), end_stat.end()));
 
     auto t_dec_end = ggml_time_us();
 

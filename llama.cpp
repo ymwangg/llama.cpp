@@ -434,8 +434,11 @@ static void ggml_graph_compute_helper(std::vector<uint8_t> & buf, ggml_cgraph * 
         buf.resize(plan.work_size);
         plan.work_data = buf.data();
     }
-
+    auto x = std::chrono::high_resolution_clock::now();
     ggml_graph_compute(graph, &plan);
+    auto y = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(y-x);
+    printf("\n!inside elapsed = %ld us, worksize=%lu nthread=%d\n", duration.count(), plan.work_size, plan.n_threads);
 }
 
 //

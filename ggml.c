@@ -15690,6 +15690,7 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
     if (skip_cpu) {
         return;
     }
+    printf("falling back to cpu %s\n", ggml_op_name(tensor->op));
     GGML_ASSERT(tensor->src[0] == NULL || tensor->src[0]->backend == GGML_BACKEND_CPU);
     GGML_ASSERT(tensor->src[1] == NULL || tensor->src[1]->backend == GGML_BACKEND_CPU);
 #endif // GGML_USE_CUBLAS
@@ -17212,7 +17213,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
     set_numa_thread_affinity(state->ith, n_threads);
 
     int node_n = -1;
-
+    int64_t t0 = ggml_time_us();
     while (true) {
         if (cplan->abort_callback && cplan->abort_callback(cplan->abort_callback_data)) {
             state->shared->node_n += 1;
@@ -17241,7 +17242,6 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
 
             // distribute new work or execute it direct if 1T
             while (++node_n < cgraph->n_nodes) {
-                GGML_PRINT_DEBUG_5("%s: %d/%d\n", __func__, node_n, cgraph->n_nodes);
 
                 struct ggml_tensor * node = cgraph->nodes[node_n];
                 const int n_tasks = n_tasks_arr[node_n];
@@ -17250,7 +17250,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                 state->shared->perf_node_start_time_us = ggml_perf_time_us();
 
                 params.nth = n_tasks;
-
+                printf("%s: %d/%d thread=%d ntasks=%d op=%s\n", __func__, node_n, cgraph->n_nodes, state->ith, n_tasks, ggml_op_name(node->op));
                 /* INIT */
                 if (GGML_OP_HAS_INIT[node->op]) {
                     params.type = GGML_TASK_INIT;
@@ -17261,7 +17261,10 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
                     // TODO: maybe push node_n to the atomic but if other threads see n_tasks is 1,
                     // they do something more efficient than spinning (?)
                     params.type = GGML_TASK_COMPUTE;
+                    int64_t t0 = ggml_time_us();
                     ggml_compute_forward(&params, node);
+                    int64_t t1 = ggml_time_us();
+                    printf("ggml_compute_forward op = %s t = %ld\n", ggml_op_name(node->op), t1-t0);
 
                     if (GGML_OP_HAS_FINALIZE[node->op]) {
                         params.type = GGML_TASK_FINALIZE;
@@ -17281,6 +17284,7 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
             atomic_store(&state->shared->n_active, n_threads);
             atomic_store(&state->shared->node_n,   node_n);
         } else {
+            printf("ggml_compute_forward --------------- GGML_WAIT \n");
             // wait for other threads to finish
             const int last = node_n;
             do {
@@ -17305,10 +17309,12 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         };
 
         if (state->ith < n_tasks) {
+            printf("ggml_compute_forward --------------- GGML state->ith < n_tasks \n");
             ggml_compute_forward(&params, node);
         }
     }
-
+    int64_t t1 = ggml_time_us();
+    printf("----------------------elasped time = %ld us-----------------------------\n", t1-t0);
     return GGML_EXIT_SUCCESS;
 }
 
